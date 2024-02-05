@@ -1,0 +1,1268 @@
+---
+title: "PRIMARY ANALYSES"
+author: "Billy Mitchell"
+date: "7/14/2020"
+output: html_document
+---
+
+# ----- NOTES ----- 
+
+VARIABLE ABBREVIATIONS
+ Num = Number | Pt = Participant  |  Raw = Unedited   | Subj = Subject  |  Cor = Correlation
+ Cols = Columns | .df = Dataframe  |  Pos = Positively-Valenced  | Neg = Negatively-Valenced
+ Congr = Congruent  |  Incongr = Incongruent   |  Abs = Absolute
+
+# ----- SCRIPT START ----- 
+
+```{r Setup Packages}
+  library(arm)
+  library(beepr)
+  library(beeswarm)
+  library(car)
+  library(DescTools)
+  library(dplyr)
+  library(effects)
+  library(effectsize)
+  library(gmodels)
+  library(ggplot2)
+  library(ggpubr)
+  library(ggthemes)
+  library(gvlma)
+  library(here)
+  library(htmlTable)
+  library(interactions)
+  library(jtools)
+  library(knitr)
+  library(lattice)
+  library(lme4)
+  library(lmerTest)
+  library(lsmeans)
+  library(mediation)
+  library(misty)
+  library(olsrr)
+  library(pander)
+  library(pastecs)
+  library(performance)
+  library(plyr)
+  library(psych)
+  library(pwr)
+  library(qdap)
+  library(RColorBrewer)
+  library(Rmisc)
+  library(rstatix)
+  library(scipub)
+  library(sjPlot)
+  library(sjstats)
+  library(skimr)
+  library(simr)
+  library(stargazer)
+  library(tidyverse)
+
+options(scipen=100)
+options(digits=3)
+options(contrasts = c("contr.helmert", "contr.poly"))
+```
+
+We're starting off by defining our directories...
+```{r Setup Directories}
+Plots.Dir <- "C:/Users/Administrator/Desktop/Grad School/Projects/RSA/Plots/"
+Import.Dir <- "C:/Users/Administrator/Desktop/Grad School/Projects/RSA/Data/Import Data"
+Export.Dir <- "C:/Users/Administrator/Desktop/Grad School/Projects/RSA/Data/Export Data"
+setwd(Import.Dir)
+```
+
+... as well as some constants that we'll use pretty frequently throughout. I either hand calculated or knew most of these.
+```{r Setup Constants}
+NumPts <- 45
+NumROIs <- 3
+NumValPair <- 4 
+ROIsxPts <- NumPts * NumROIs
+NumTotalCopes <- 24
+CopesPerVal <- 8
+NumDataDim <- 4
+NumDataRows <- ROIsxPts * NumTotalCopes * NumDataDim
+NumValCopes <- 16
+NumAdult <- 20
+NumChild <- 25
+NumVoxels <-339
+NumCorsPerValPtROI <- (((CopesPerVal^2) - CopesPerVal) / 2)
+TotalCorsPerPairCat <- NumCorsPerValPtROI * ROIsxPts
+```
+# ----- LOADING DATAFRAME -----
+
+```{r Loading Master Dataframe}
+  AllCor.df <- read.csv(file = "C:/Users/Administrator/Desktop/Grad School/Projects/RSA/Data/Export Data/AllCor.csv", 
+                       header = T,
+                       row.names = 1, 
+                       sep=",", 
+                       dec = ".", 
+                       stringsAsFactors = T)
+```
+
+# ----- RESTRUCTURING VARIABLES -----
+
+```{r Declaring Valence Pair as a Factor}
+  AllCor.df$Valence.Pair <- factor(x = AllCor.df$Valence.Pair, levels = c("Negative", "Mixed", "Positive", "Neut-Pos", "Neut-Neg", "Neutral"), labels = c("Negative", "Mixed", "Positive", "Neut-Pos", "Neut-Neg", "Neutral"))
+  str(AllCor.df$Valence.Pair)
+```
+
+``` {r Declaring Congruency as a Factor}
+  AllCor.df$Congruency <- factor(x = AllCor.df$Congruency, levels = c("Congruent", "Incongruent"), labels = c("Congruent", "Incongruent"))
+  str(AllCor.df$Congruency)
+```
+
+``` {r Declaring Age Group as a Factor}
+  AllCor.df$Age.Group <- factor(x = AllCor.df$Age.Group, levels = c("Child", "Adult"), labels = c("Child", "Adult"))
+  str(AllCor.df$Age.Group)
+```
+
+``` {r Declaring ROI as a Factor}
+  AllCor.df$ROI <- factor(x = AllCor.df$ROI, levels = c("AMY", "NAcc", "vmPFC"), labels = c("AMY", "NAcc", "vmPFC"))
+  str(AllCor.df$ROI)
+```
+
+``` {r Declaring Participant as a Factor}
+  AllCor.df$Participant <- as.factor(x = AllCor.df$Participant)
+  str(AllCor.df$Participant)
+```
+
+``` {r Z-Scoring and Centering Age}
+  AllCor.df$Age.MOs.z <- scale(AllCor.df$Age.MOs, center = T, scale = T)
+```
+
+=================================================================
+======== POSITIVE & NEGATIVE VALENCE MIXED EFFECTS ANOVAs =======
+=================================================================
+``` {r Summary Function}
+CustomSummary <- function(data=NULL, measurevar, groupvars=NULL, na.rm=FALSE,
+                      conf.interval=.95, .drop=TRUE) {
+  length2 <- function (x, na.rm=FALSE) {
+    if (na.rm) sum(!is.na(x))
+    else       length(x)
+  }
+  datac <- ddply(data, groupvars, .drop=.drop,
+                 .fun = function(xx, col) {
+                   c(N    = length2(xx[[col]], na.rm=na.rm),
+                     mean = mean   (xx[[col]], na.rm=na.rm),
+                     sd   = sd     (xx[[col]], na.rm=na.rm))
+                 },
+                 measurevar
+  )
+  datac <- plyr::rename(datac, c("mean" = measurevar))
+  datac$se <- datac$sd / sqrt(datac$N)
+  ciMult <- qt(conf.interval/2 + .5, datac$N-1)
+  datac$ci <- datac$se * ciMult
+  return(datac)
+}
+```
+# ----- PREMISE -----
+
++ We expect to see differences between Age Group such that adults demonstrate reduced representational similarity relative to their younger counterparts. This is theoretically driven by the development of greater affective nuance, as adults may experience a greater range of potential emotions in response to stimuli as a consequence of having more experiences to relate to or reference, better developed self-regulatory goals and skills, greater intellect and cultural sensitivity. We expect the most pronounced difference in the vmPFC, which undergoes dramatic development between childhood and adulthood, and more modest differences between child and adult AMY's and NAcc's. We expect to see differences by valence as well, such that negative representational similarity should be higher than positive representational similarity. We expect these differences to be more pronounced in children relative to adults. We do not expect to see differences by valence within ROI. Stimuli of different valences was measured within each participant. Additionally each participant provided data for each of the three ROIs. As such, these factors should be treated as within-subject variables. In contrast, though, each subject can only belong to one Age Group, making it a between-subject variable. All of our independent variables are categorical. The Representational Similarity Pattern scores were not measured independently; that is to say that each measurement may be colored by the ROI in which it was measured, and, subsequently, the person in which each ROI is situated. As such, we will test a model in which we adjust for the random effects of participant but allow for the fixed effects to otherwise be independent. Bonferroni adjusted contrasts will follow as allowed.
+# ----- ASSUMPTIONS -----
+
+```{r Subsetting Dataframe}
+df <- subset(AllCor.df, !is.na(Correlation.fz) & (Valence.Pair == "Positive" | Valence.Pair =="Negative"))
+```
+
+```{r Summary}
+skim(df)
+```
+
+```{r Describe}
+psych::describe(df$Correlation.fz)
+```
+
+```{r Histogram}
+hist(df$Correlation.fz)
+```
+
+```{r QQ Plots}
+ggqqplot(df, "Correlation.fz", ggtheme = theme_bw()) +
+  facet_grid(Valence.Pair + Age.Group ~ ROI, labeller = "label_both")
+```
+
+```{r Box Plot}
+  ggboxplot(df, 
+            x = "Age.Group", 
+            y = "Correlation.fz", 
+            color = "Valence.Pair", 
+            palette = "jco",
+            facet.by = "ROI", 
+            short.panel.labs = FALSE)
+```
+
+```{r Outliers}
+df %>%
+  group_by(ROI, Age.Group, Valence.Pair) %>%
+  identify_outliers(Correlation.fz)
+```
+
+```{r Shapiro-Wilk Test for Normality}
+df %>%
+  group_by(ROI, Age.Group, Valence.Pair) %>%
+  shapiro_test(Correlation.fz)
+```
+
+```{r Homogneity of variance}
+df %>%
+  group_by(ROI, Valence.Pair) %>%
+  levene_test(Correlation.fz ~ Age.Group)
+```
+
+# ----- ASSUMPTION RESULTS -----
+
++ After reviewing the assumptions necessary for our statistical methods, we have mixed support that this dataset is a good fit. There were a number of extreme outliers across ROI, Age Group, and Valence, as assessed by box plot method. Visual inspection via histogram and qq plot suggests a relatively normal distribution with low kurtosis (0.42) and skew (-0.09) overall. Shapiro-Wilk’s test of normality produced significant values for positive representations in children's NAcc, positive representations in adult's AMY, positive and negative representations in adult's NAcc, positive representations in children's vmPFC, and positive representation's in adult's vmPFC. However, this test is especially sensitive to large sample sizes and the test statistics in each case were 0.98 or greater, suggesting adequate distribution. There was insufficient homogeneity of variances as assessed by Levene’s test of homogeneity of variances within the amygdala for both valences and within the vmPFC for positive valence. However, mixed ANOVA methods are robust to heterogeneity of variance in circumstances of equal group sample sizes.
+
+
+# ----- MODELS -----
+
+```{r Model & Results}
+aov <- aov(Correlation.fz ~ ROI * Age.Group * Valence.Pair + Error(Participant), data = df)
+summary(aov)
+```
+
+```{r Effect Sizes}
+sjstats::anova_stats(aov, digits = 3)
+```
+
+# ----- ANOVA RESULTS -----
+
++ Using a Mixed Effects ANOVA model adjusting for the random effect of participant, significant differences were measured in the between-subject main effect of Age Group [F(1, 43) = 4.31, p = 0.044, ω2p = 0.011], as well as the within-subject main effects of ROI [F(2, 7505) = 17.60, p < 0.001, ω2p = 0.004] and Valence [F(1, 7505) = 8.08, p = 0.004, ω2p = 0.001]. Additional interactions between ROI and Age Group [F(2, 7505) = 7.87, p < 0.001, ω2p = 0.002] and Age Group and Valence [F(1, 7505) = 12.54, p < 0.001, ω2p = 0.002] demonstrated significantly different means as well. No statistically significant differences were measured in the interactions between ROI and Valence [F(2, 7505) = 0.71, p = 0.490, ω2p = 0.000]. and the three-way ROI-Valence-Age Group interaction [F(2, 7505) = 0.35, p = 0.702, ω2p = 0.000].
+
+====== VISUALIZATIONS ======
+# ----- CORRELATION MATRIX -----
+
+I'm told I have to create a correlation matrix despite the fact that it makes virtually no sense to do so relative to our analyses so here the fuck we are
+``` {r Creating Dataframe}
+
+```
+
+# ----- BY AGE GROUP -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("Age.Group"))
+  Summary$sd <- c(0.143, 0.103)
+  Summary$N <- c(25,20)
+  Summary$se <- Summary$sd/sqrt(Summary$N)
+  Summary$ci <- Summary$se * 1.96
+  Summary$ci <- Summary$ci - 0.013
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = Age.Group, y = Correlation.fz)) +
+    stat_summary(geom="point", fun = mean, size = .75, color = c("chocolate4", "deepskyblue2")) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.25, width=0.25, color = c("chocolate4", "deepskyblue2")) +
+    geom_signif(comparisons = list(c("Child", "Adult")), y_position=.40, size = .1, textsize = 10, tip_length = c(.040, .015), annotations = "", color = "black") +
+    scale_x_discrete(name = "", labels = c("Child", "Adult")) +
+    scale_y_continuous(name = "", breaks = c(0.1, 0.3, 0.5)) +
+    coord_cartesian(ylim=c(0.10, 0.50)) +
+    theme_classic() +
+    theme(legend.position="none") +
+    theme(title = element_text(face="bold", size=6)) +
+    theme(axis.text.x = element_text(size=10, color = "Black")) +
+    theme(axis.text.y = element_text(size=8, color = "Black"))
+  Plot
+```
+
+```{r Visualization Export}
+  setwd(Plots.Dir)
+  pdf("Differences in Representational Similarity By Age Group.pdf", width = 2, height = 1.4==)
+  Plot
+  dev.off()
+```
+
+# ----- BY ROI -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("ROI"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = ROI, y = Correlation.fz, color = ROI)) +
+    stat_summary(geom="point", fun = mean, size = 3.5,) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.75, width=0.25) +
+    scale_color_brewer(palette="Dark2") +
+    scale_x_discrete(name = "ROI", labels = c("AMY", "NAcc", "vmPFC")) +
+    scale_y_continuous(name = "Mean Correlative Value (Fisher's Z)") +
+    coord_cartesian(ylim=c(0.10, 0.50)) +
+    theme_classic() +
+    theme(legend.position="none") +
+    theme(title = element_text(face="bold", size=16)) +
+    theme(axis.text.x = element_text(size=16, color = "Black")) +
+    theme(axis.text.y = element_text(size=14, color = "Black"))
+  Plot
+```
+
+```{r Visualization Export}
+  setwd(Plots.Dir)
+  pdf("Differences in Representational Similarity By ROI.pdf", width = 5, height = 5)
+  Plot
+  dev.off()
+```
+
+# ----- BY VALENCE -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("Valence.Pair"))
+  Summary$ci <- Summary$ci - 0.0044
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = Valence.Pair, y = Correlation.fz)) +
+    stat_summary(geom="point", fun = mean, size = .75, color = c("brown1", "darkseagreen4")) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.25, width=0.25, color = c("brown1", "darkseagreen4")) +
+    geom_signif(comparisons = list(c("Negative", "Positive")), y_position=.40, size = .1, textsize = 10, tip_length = c(.030, .035), annotations = "", color = "black") +
+    scale_x_discrete(name = "", labels = c("Negative", "Positive")) +
+    scale_y_continuous(name = "", breaks = c(0.1,0.3,0.5)) +
+    coord_cartesian(ylim=c(0.10, 0.50)) +
+    theme_classic() +
+    theme(legend.position="none") +
+    theme(title = element_text(face="bold", size=6)) +
+    theme(axis.text.x = element_text(size=10, color = "Black")) +
+    theme(axis.text.y = element_text(size=8, color = "Black"))
+  Plot  
+```
+
+```{r Visualization Export}
+  setwd(Plots.Dir)
+  pdf("Differences in Representational Similarity By Valence.pdf", width = 2, height = 1.4)
+  Plot
+  dev.off()
+```
+
+# ----- BY AGE GROUP & ROI -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("Age.Group", "ROI"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = Age.Group, y = Correlation.fz, color = ROI, group = ROI)) +
+    stat_summary(geom="point", fun = mean, size = .4, position=position_dodge(width = 0.45)) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.15, width=0.35, position=position_dodge(width = 0.45)) +
+    geom_signif(y_position=.46, textsize = 6, size = .1, tip_length = c(.007, .037), annotations = "", color = "black", xmin = 1, xmax = 2) +
+    geom_signif(y_position=.42, textsize = 6, size = .1, tip_length = c(.000, .029), annotations = "", color = "black", xmin = 1.15, xmax = 2.15) +
+    geom_signif(y_position=.50, textsize = 6, size = .1,tip_length = c(.023, .052), annotations = "", color = "black", xmin = .85, xmax = 1.85) +
+    geom_signif(y_position=.28, textsize = 6, size = .1,tip_length = c(.005, .005), annotations = "", color = "black", xmin = 1.80, xmax = 2.20) +
+    geom_signif(y_position=.34, textsize = 3, size = .1,tip_length = c(.014, .004), annotations = "", color = "black", xmin = .85, xmax = 1) +
+    geom_signif(y_position=.39, textsize = 3, size = .1,tip_length = c(.010, .002), annotations = "", color = "black", xmin = 1, xmax = 1.15) +
+    geom_signif(y_position=.41, textsize = 3, size = .1,tip_length = c(.015, .002), annotations = "", color = "black", xmin = .85, xmax = 1.15) +
+    scale_color_brewer(palette="Dark2", name="ROI", breaks=c("AMY", "NAcc", "vmPFC"), labels=c("AMY", "NAcc", "vmPFC")) +
+    scale_x_discrete(name = "", labels = c("Child", "Adult")) +
+    scale_y_continuous(name = "", breaks = c(0.1, 0.3, 0.5)) +
+    coord_cartesian(ylim=c(0.10, 0.52)) +
+    theme_classic() +
+    theme(title = element_text(face="bold", size=6)) +
+    theme(axis.text.x = element_text(size=10, color = "Black")) +
+    theme(axis.text.y = element_text(size=8, color = "Black"))
+  Plot 
+```
+
+```{r Visualization Export}
+  setwd(Plots.Dir)
+  pdf("Differences in Representational Similarity By Age & ROI.pdf", width = 2.5, height = 1.4)
+  Plot
+  dev.off()
+```
+
+# ----- BY AGE GROUP & VALENCE -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("Age.Group", "Valence.Pair"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = Age.Group, y = Correlation.fz, color = Valence.Pair, group = Valence.Pair)) +
+    stat_summary(geom="point", fun = mean, size = .4, position=position_dodge(width = 0.45)) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.15, width=0.35, position=position_dodge(width = 0.45)) +
+    geom_signif(y_position=.39, textsize = 6, size = .1, tip_length = c(.005, .03), annotations = "", color = "black", xmin = 1.115, xmax = 2.115) +
+    geom_signif(y_position=.44, textsize = 6, size = .1, tip_length = c(.02, .04), annotations = "", color = "black", xmin = .885, xmax = 1.885) +
+    geom_signif(y_position=.27, textsize = 5, size = .1, tip_length = c(.007, .003), annotations = "", color = "black", xmin = 1.885, xmax = 2.115) +
+    geom_signif(y_position=.36, textsize = 5, size = .1, tip_length = c(.003, .015), annotations = "", color = "black", xmin = .885, xmax = 1.115) +
+    scale_color_manual(values = c("brown1", "darkseagreen4"), name="Valence Type", labels=c("Negative", "Positive")) +
+    scale_x_discrete(name = "", labels = c("Child", "Adult")) +
+    scale_y_continuous(name = "", breaks = c(0.1,0.3,0.5)) +
+    coord_cartesian(ylim=c(0.10, 0.50)) +
+    theme_classic() +
+    theme(title = element_text(face="bold", size=6)) +
+    theme(axis.text.x = element_text(size=10, color = "Black")) +
+    theme(axis.text.y = element_text(size=8, color = "Black"))
+  Plot   
+```
+
+```{r Visualization Export}
+  setwd(Plots.Dir)
+  pdf("Differences in Representational Similarity By Age & Valence.pdf", width = 2.5, height = 1.4)
+  Plot
+  dev.off()
+```
+
+# ----- BY AGE GROUP, ROI, & VALENCE -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("Age.Group", "Valence.Pair", "ROI"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = Age.Group, y = Correlation.fz, color = Valence.Pair, group = Valence.Pair)) +
+    stat_summary(geom="point", fun = mean, size = 3.5, position=position_dodge(width = 0.45)) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.75, width=0.25, position=position_dodge(width = 0.45)) +
+    scale_color_brewer(palette="Dark2", name="Valence Type", breaks=c("Negative", "Positive"), labels=c("Negative", "Positive")) +
+    scale_x_discrete(name = "Age Group", labels = c("Child", "Adult")) +
+    scale_y_continuous(name = "Mean Correlative Value (Fisher's Z)") +
+    coord_cartesian(ylim=c(0.10, 0.50)) +
+    facet_wrap(.~ROI,scales='free',strip.position = "bottom")+
+    theme_classic() +
+    theme(title = element_text(face="bold", size=16)) +
+    theme(axis.text.x = element_text(size=16, color = "Black")) +
+    theme(axis.text.y = element_text(size=14, color = "Black")) +
+    theme(panel.spacing    = unit(0, "points"),
+          strip.background = element_blank(),
+          strip.placement  = "outside",
+          strip.text = element_text(size=14,face = 'bold'))
+  Plot  
+```
+
+```{r Visualization Export}
+  setwd(Plots.Dir)
+  pdf("Differences in Representational Similarity By Age, ROI, & Valence.pdf", width = 7, height = 5)
+  Plot
+  dev.off()
+```
+====== POST-HOC CONTRASTS ======
+
+```{r Simple Effects Contrast}
+c1 <- t.test(df$Correlation.fz[df$ROI == "AMY" & df$Age.Group == "Child"], df$Correlation.fz[df$ROI == "AMY" & df$Age.Group == "Adult"])
+c2 <- t.test(df$Correlation.fz[df$ROI == "NAcc" & df$Age.Group == "Child"], df$Correlation.fz[df$ROI == "NAcc" & df$Age.Group == "Adult"])
+c3 <- t.test(df$Correlation.fz[df$ROI == "vmPFC" & df$Age.Group == "Child"], df$Correlation.fz[df$ROI == "vmPFC" & df$Age.Group == "Adult"])
+c4 <- t.test(df$Correlation.fz[df$ROI == "AMY" & df$Age.Group == "Child"], df$Correlation.fz[df$ROI == "NAcc" & df$Age.Group == "Child"])
+c5 <- t.test(df$Correlation.fz[df$ROI == "AMY" & df$Age.Group == "Child"], df$Correlation.fz[df$ROI == "vmPFC" & df$Age.Group == "Child"])
+c6 <- t.test(df$Correlation.fz[df$ROI == "NAcc" & df$Age.Group == "Child"], df$Correlation.fz[df$ROI == "vmPFC" & df$Age.Group == "Child"])
+c7 <- t.test(df$Correlation.fz[df$ROI == "AMY" & df$Age.Group == "Adult"], df$Correlation.fz[df$ROI == "NAcc" & df$Age.Group == "Adult"])
+c8 <- t.test(df$Correlation.fz[df$ROI == "AMY" & df$Age.Group == "Adult"], df$Correlation.fz[df$ROI == "vmPFC" & df$Age.Group == "Adult"])
+c9 <- t.test(df$Correlation.fz[df$ROI == "NAcc" & df$Age.Group == "Adult"], df$Correlation.fz[df$ROI == "vmPFC" & df$Age.Group == "Adult"])
+c10 <- t.test(df$Correlation.fz[df$Valence.Pair == "Positive" & df$Age.Group == "Adult"], df$Correlation.fz[df$Valence.Pair == "Negative" & df$Age.Group == "Adult"])
+c11 <- t.test(df$Correlation.fz[df$Valence.Pair == "Positive" & df$Age.Group == "Child"], df$Correlation.fz[df$Valence.Pair == "Negative" & df$Age.Group == "Child"])
+```
+
+```{r Simple Effects}
+c12 <- t.test(df$Correlation.fz[df$Valence.Pair == "Positive" & df$Age.Group == "Child"], df$Correlation.fz[df$Valence.Pair == "Positive" & df$Age.Group == "Adult"])
+c13 <- t.test(df$Correlation.fz[df$Valence.Pair == "Negative" & df$Age.Group == "Child"], df$Correlation.fz[df$Valence.Pair == "Negative" & df$Age.Group == "Adult"])
+``` 
+
+```{r Interaction Contrast}
+c14 <- t.test(df$Correlation.fz[(df$Valence.Pair == "Negative" & df$Age.Group == "Child") | (df$Valence.Pair == "Positive" & df$Age.Group == "Adult")], 
+              df$Correlation.fz[(df$Valence.Pair == "Negative" & df$Age.Group == "Adult") | (df$Valence.Pair == "Positive" & df$Age.Group == "Child")])
+c15 <- t.test(df$Correlation.fz[(df$ROI == "AMY" & df$Age.Group == "Child") | (df$ROI == "NAcc" & df$Age.Group == "Adult")], 
+              df$Correlation.fz[(df$ROI == "AMY" & df$Age.Group == "Adult") | (df$ROI == "NAcc" & df$Age.Group == "Child")])
+c16 <- t.test(df$Correlation.fz[(df$ROI == "AMY" & df$Age.Group == "Child") | (df$ROI == "vmPFC" & df$Age.Group == "Adult")], 
+              df$Correlation.fz[(df$ROI == "AMY" & df$Age.Group == "Adult") | (df$ROI == "vmPFC" & df$Age.Group == "Child")])
+c17 <- t.test(df$Correlation.fz[(df$ROI == "vmPFC" & df$Age.Group == "Child") | (df$ROI == "NAcc" & df$Age.Group == "Adult")], 
+              df$Correlation.fz[(df$ROI == "vmPFC" & df$Age.Group == "Adult") | (df$ROI == "NAcc" & df$Age.Group == "Child")])
+```
+
+# ----- CONTRAST DATAFRAME -----
+
+```{r Compiling Contrast Values}
+Contrast <- c("Child - Adult, AMY", "Child - Adult, NAcc", "Child - Adult, vmPFC",
+              "AMY - NAcc, Child", "AMY - vmPFC, Child", "NAcc - vmPFC, Child",
+              "AMY - NAcc, Adult", "AMY - vmPFC, Adult", "NAcc - vmPFC, Adult",
+              "Positive-Negative, Adult", "Positive - Negative, Child",
+              "Child - Adult, Positive", "Child - Adult, Negative", 
+              "Child - Adult, Positive - Negative", "AMY - NAcc, Child - Adult",
+              "AMY - vmPFC, Child - Adult", "NAcc - vmPFC, Child - Adult")
+Estimate <- round(c(c1$estimate, c2$estimate, c3$estimate, c4$estimate, c5$estimate,
+                    c6$estimate, c7$estimate, c8$estimate, c9$estimate, c10$estimate, 
+                    c11$estimate, c12$estimate, c13$estimate, c14$estimate, c15$estimate,
+                    c16$estimate,c17$estimate),3)
+CI95 <- round(c(c1$conf.int, c2$conf.int, c3$conf.int, c4$conf.int, c5$conf.int,
+                c6$conf.int, c7$conf.int, c8$conf.int, c9$conf.int, c10$conf.int, 
+                c11$conf.int, c12$conf.int, c13$conf.int, c14$conf.int, c15$conf.int, 
+                c16$conf.int, c17$conf.int),3)
+Statistic <- round(c(c1$statistic, c2$statistic, c3$statistic, c4$statistic, c5$statistic,
+                     c6$statistic, c7$statistic, c8$statistic, c9$statistic, c10$statistic, 
+                     c11$statistic, c12$statistic, c13$statistic, c14$statistic, c15$statistic,
+                     c16$statistic, c17$statistic),3)
+StdErr <- round(c(c1$stderr, c2$stderr, c3$stderr, c4$stderr, c5$stderr,
+                  c6$stderr, c7$stderr, c8$stderr, c9$stderr, c10$stderr, 
+                  c11$stderr, c12$stderr, c13$stderr, c14$stderr, c15$stder,
+                  c16$stder, c17$stder),3)
+DoF <- round(c(c1$parameter, c2$parameter, c3$parameter, c4$parameter, c5$parameter,
+               c6$parameter, c7$parameter, c8$parameter, c9$parameter, c10$parameter, 
+               c11$parameter, c12$parameter, c13$parameter, c14$parameter, c15$parameter,
+               c16$parameter, c17$parameter),3)
+Raw.P <- round(c(c1$p.value, c2$p.value, c3$p.value, c4$p.value, c5$p.value,
+                 c6$p.value, c7$p.value, c8$p.value, c9$p.value, c10$p.value, 
+                 c11$p.value, c12$p.value, c13$p.value, c14$p.value, c15$p.value,
+                 c16$p.value, c17$p.value),3)
+```
+
+```{r Defining Columns}
+  Cols <- c("Contrast", "Est.X", "Est.Y", "Diff", "SE", "CI.LWR", "CI.UPR", "T.Stat", "df", "Raw.P.Val", "Bonferroni.P.Val")
+```
+
+```{r Defining Rows}
+  Rows <- 1:17
+```
+
+```{r Creating Dataframe}    
+  Contrasts <- data.frame(matrix(NA, 
+                          nrow = length(Rows), 
+                          ncol = length(Cols), 
+                          dimnames = list(Rows, Cols)))
+```
+
+```{r Applying Values to Contrast Dataframe}    
+  Contrasts$Contrast <- Contrast 
+  Contrasts$Est.X <- Estimate[seq(1,((length(Rows)*2) - 1),2)]
+  Contrasts$Est.Y <- Estimate[seq(2,(length(Rows)*2),2)]
+  Contrasts$Diff <- Contrasts$Est.X - Contrasts$Est.Y
+  Contrasts$SE <- StdErr
+  Contrasts$CI.LWR <- CI95[seq(1,((length(Rows)*2) - 1),2)]
+  Contrasts$CI.UPR <- CI95[seq(2,(length(Rows)*2),2)]
+  Contrasts$T.Stat <- Statistic
+  Contrasts$df <- DoF
+  Contrasts$Raw.P.Val <- Raw.P
+  Contrasts$Bonferroni.P.Val <- round(p.adjust(Contrasts$Raw.P.Val, method = "bonferroni"),3)
+  rm(c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,c15,c16,c17, Cols, Rows, Contrast, Estimate, CI95, Statistic,DoF, Raw.P, StdErr)
+```
+
+```{r Exporting Dataframe}    
+  write.csv(Contrasts, "C:/Users/Administrator/Desktop/Grad School/Projects/RSA/Data/Export Data/Primary.Contrasts.csv")
+```
+
+```{r Viewing Contrast Results}    
+  Contrasts
+```
+
+# ----- CONTRAST RESULTS -----
+
++ Bonferroni adjusted post-hoc contrasts further elucidated the statistical differences between these groups. Children demonstrate greater representational similarity in AMY [diff = 0.045, se = 0.012, 95% CI[0.021, 0.070], t(2502) = 3.640, adj. p < 0.001], NAcc [diff = 0.067, se = 0.016, 95% CI[0.035, 0.099], t(2371) = 4.068, adj. p < 0.001], and vmPFC [diff = 0.125, se = 0.017, 95% CI[0.092, 0.158], t(2465) = 7.366, adj. p < 0.001] activation patterns relative to their older counterparts. Children also demonstrated differences in representational similarity between AMY and vmPFC [diff = -0.097, se = 0.015, 95% CI[-0.126, -0.068], t(2607) = -6.536, adj. p < 0.001] and NAcc and vmPFC [diff = -0.057, se = 0.016, 95% CI[-0.088, -0.026], t(2776) = -3.571, adj. p < 0.001], but not AMY and NAcc [diff = -0.040, se = 0.014, 95% CI[-0.067, -0.012], t(2705) = -2.834, adj. p = 0.075]. No such ROI differences were observed in our adult sample [AMY-NAcc: diff = -0.018, se = 0.015, 95% CI[-0.048, 0.011], t(2005) = -1.209, adj. p = 1.000; AMY-vmPFC: diff = -0.017, se = 0.015, 95% CI[-0.046, 0.012], t(2018) = -1.136, adj. p = 1.000; NAcc-vmPFC: diff = 0.001, se = 0.017, 95% CI[-0.033, 0.035], t(2238) = 0.072, adj. p = 1.000]. Interaction contrasts found that the differences between the adult AMY and vmPFC to be different than that of the child AMY and vmPFC [diff = -0.047, se = 0.011, 95% CI[-0.067, -0.025], t(5026) = -4.327, adj. p < 0.001], but no such differences were observed between the AMY and NAcc [diff = -0.014, se = 0.010, 95% CI[-0.034, 0.006], t(5033) = -1.351, adj. p = 1.000] or the NAcc and vmPFC [diff = 0.033, se = 0.012, 95% CI[0.009, 0.055], t(5018) = 2.723, adj. p = 0.090]. Lastly, children and adults demonstrated significant differences in both positive [diff = 0.049, se = 0.013, 95% CI[0.024, 0.074], t(3687) = 3.872, adj. p < 0.001] and negative [diff = 0.109, se = 0.013, 95% CI[0.084, 0.134], t(3660) = 8.693, adj. p < 0.001]  representational similarity, with the difference between the two in adults also exhibiting a difference from children as well [diff = 0.032, se = 0.009, 95% CI[0.015, 0.050], t(7558) = 3.613, adj. p < 0.001]. 
+
+=================================================================
+============ CONGRUENT VALENCE MIXED EFFECTS ANOVAs =============
+=================================================================
+# ----- PREMISE -----
+
++ Our comparisons of activation pattern aren't limited to valence. We can compare positive stimuli to negative stimuli and determine how similarly they are represented as well. Ideally, congruent comparisons (that is, positive to positive and negative to negative) should demonstrate greater similarity than incongruent comparisons (positive to negative). A lack of difference in pattern similarity between congruent and incongruent categories might be additional evidence that the region is not dissociating or selectively responding to a particular valence, but a higher order concept, like emotion more broadly. Alternatively, this may be evidence that these structures are representing non-affective, and, thus, non-interesting, characteristics of the stimuli as well. We expect to see greater representational similarity for congruent comparisons than incongruent comparisons. We also expect to see a reduced difference between congruent and incongruent comparisons in adults relative to children. This, once again, may be driven by greater affective nuance. We expect the most pronounced difference in the NAcc, which should be sensitive to positive affective valence, while both the amygdala and vmPFC may demonstrate no differences. Congruency will replace valence in our models with ROI, Age Group, and Participant all retaining their positions in a Mixed Effects ANOVA with Bonferroni adjusted contrasts as allowed.
+
+# ----- ASSUMPTIONS -----
+
+```{r Subsetting Dataframe}
+df <- subset(AllCor.df, !is.na(Correlation.fz) & (Valence.Pair == "Positive" | Valence.Pair == "Mixed" | Valence.Pair =="Negative"))
+```
+
+```{r Summary}
+skim(df)
+```
+
+```{r Describe}
+psych::describe(df$Correlation.fz)
+```
+
+```{r Histogram}
+hist(df$Correlation.fz)
+```
+
+```{r QQ Plots}
+ggqqplot(df, "Correlation.fz", ggtheme = theme_bw()) +
+  facet_grid(Congruency + Age.Group ~ ROI, labeller = "label_both")
+```
+
+```{r Box Plot}
+  ggboxplot(df, 
+            x = "Age.Group", 
+            y = "Correlation.fz", 
+            color = "Congruency", 
+            palette = "jco",
+            facet.by = "ROI", 
+            short.panel.labs = FALSE)
+```
+
+```{r Outliers}
+df %>%
+  group_by(ROI, Age.Group, Congruency) %>%
+  identify_outliers(Correlation.fz)
+```
+
+```{r Shapiro-Wilk Test for Normality}
+df %>%
+  group_by(ROI, Age.Group, Congruency) %>%
+  shapiro_test(Correlation.fz)
+```
+
+```{r Homogneity of variance}
+df %>%
+  group_by(ROI, Congruency) %>%
+  levene_test(Correlation.fz ~ Age.Group)
+```
+
+# ----- ASSUMPTION RESULTS -----
+
++ After reviewing the assumptions necessary for our statistical methods, we have mixed support that this dataset is a good fit. There were a number of extreme outliers across ROI, Age Group, and Congruency, as assessed by box plot method. Visual inspection via histogram and qq plot suggests a relatively normal distribution with low kurtosis (0.50) and skew (-0.03) overall. Shapiro-Wilk’s test of normality produced significant values for congruent representations in children's AMY, congruent and incongruent representations in adult's AMY and NAcc, congruent representations in children's vmPFC, and congruent and incongruent representations in adult's vmPFC. However, this test is especially sensitive to large sample sizes and the test statistics in each case were 0.98 or greater, suggesting adequate distribution. There was insufficient homogeneity of variances as assessed by Levene’s test of homogeneity of variances within the amygdala for both categories and within the vmPFC for the congruent category. However, mixed ANOVA methods are robust to heterogeneity of variance in circumstances of equal group sample sizes.
+
+# ----- MODELS -----
+
+```{r Model & Results}
+aov <- aov(Correlation.fz ~ ROI * Age.Group * Congruency + Error(Participant), data = df)
+summary(aov)
+```
+
+```{r Effect Sizes}
+sjstats::anova_stats(aov, digits = 3)
+```
+
+# ----- ANOVA RESULTS -----
+
++ Using a Mixed Effects ANOVA model adjusting for the random effect of participant, significant differences were measured in the between-subject main effect of Age Group [F(1, 43) = 4.30, p = 0.044, ω2p = 0.010], as well as the within-subject main effects of ROI [F(2, 15065) = 36.39, p < 0.001, ω2p = 0.005] and Congruence [F(1, 15065) = 10.19, p = 0.001, ω2p = 0.001]. An additional interaction between ROI and Age Group [F(2, 15065) = 12.68, p < 0.001, ω2p = 0.002] demonstrated significantly different means as well. However, no statistically significant differences were measured in the interactions between ROI and Congruence [F(2, 15065) = 0.13, p = 0.881, ω2p = 0.000], Age Group and Congruence [F(2, 15065) = 0.46, p = 0.500, ω2p = 0.000], and the three-way ROI-Congruence-Age Group interaction [F(2, 15065) = 0.21, p = 0.8075, ω2p = 0.000].
+====== VISUALIZATIONS ======
+# ----- BY AGE GROUP -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("Age.Group"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = Age.Group, y = Correlation.fz, color = Age.Group)) +
+    stat_summary(geom="point", fun = mean, size = 3.5) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.75, width=0.25) +
+    scale_color_brewer(palette="Dark2") +
+    scale_x_discrete(name = "Age Group", labels = c("Child", "Adult")) +
+    scale_y_continuous(name = "Mean Correlative Value (Fisher's Z)") +
+    coord_cartesian(ylim=c(0.10, 0.50)) +
+    theme_classic() +
+    theme(legend.position="none") +
+    theme(title = element_text(face="bold", size=16)) +
+    theme(axis.text.x = element_text(size=16, color = "Black")) +
+    theme(axis.text.y = element_text(size=14, color = "Black"))
+  Plot
+```
+
+# ----- BY ROI -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("ROI"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = ROI, y = Correlation.fz, color = ROI)) +
+    stat_summary(geom="point", fun = mean, size = 3.5,) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.75, width=0.25) +
+    scale_color_brewer(palette="Dark2") +
+    scale_x_discrete(name = "ROI", labels = c("AMY", "NAcc", "vmPFC")) +
+    scale_y_continuous(name = "Mean Correlative Value (Fisher's Z)") +
+    coord_cartesian(ylim=c(0.10, 0.50)) +
+    theme_classic() +
+    theme(legend.position="none") +
+    theme(title = element_text(face="bold", size=16)) +
+    theme(axis.text.x = element_text(size=16, color = "Black")) +
+    theme(axis.text.y = element_text(size=14, color = "Black"))
+  Plot
+```
+
+# ----- BY CONGRUENCE -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("Congruency"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = Congruency, y = Correlation.fz, color = Congruency)) +
+    stat_summary(geom="point", fun = mean, size = 3.5,) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.75, width=0.25) +
+    geom_signif(comparisons = list(c("Congruent", "Incongruent")), y_position=.35, map_signif_level = T, textsize = 10, tip_length = c(.015, .010), color = "black") +
+    scale_color_brewer(palette="Dark2") +
+    scale_x_discrete(name = "Congruency", labels = c("Congruent", "Incongruent")) +
+    scale_y_continuous(name = "Mean Correlative Value (Fisher's Z)") +
+    coord_cartesian(ylim=c(0.10, 0.50)) +
+    theme_classic() +
+    theme(legend.position="none") +
+    theme(title = element_text(face="bold", size=16)) +
+    theme(axis.text.x = element_text(size=16, color = "Black")) +
+    theme(axis.text.y = element_text(size=14, color = "Black"))
+  Plot  
+```
+
+```{r Visualization Export}
+  setwd(Plots.Dir)
+  pdf("Differences in Representational Similarity By Congruence.pdf", width = 5, height = 5)
+  Plot
+  dev.off()
+```
+
+# ----- BY AGE GROUP & ROI -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("Age.Group", "ROI"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = Age.Group, y = Correlation.fz, color = ROI, group = ROI)) +
+    stat_summary(geom="point", fun = mean, size = 3.5, position=position_dodge(width = 0.45)) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.75, width=0.25, position=position_dodge(width = 0.45)) +
+    scale_color_brewer(palette="Dark2", name="ROI", breaks=c("AMY", "NAcc", "vmPFC"), labels=c("AMY", "NAcc", "vmPFC")) +
+    scale_x_discrete(name = "Age Group", labels = c("Child", "Adult")) +
+    scale_y_continuous(name = "Mean Correlative Value (Fisher's Z)") +
+    coord_cartesian(ylim=c(0.10, 0.52)) +
+    theme_classic() +
+    theme(title = element_text(face="bold", size=16)) +
+    theme(axis.text.x = element_text(size=16, color = "Black")) +
+    theme(axis.text.y = element_text(size=14, color = "Black"))
+  Plot 
+```
+
+# ----- BY AGE GROUP & CONGRUENCE -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("Age.Group", "Congruency"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = Age.Group, y = Correlation.fz, color = Congruency, group = Congruency)) +
+    stat_summary(geom="point", fun = mean, size = 3.5, position=position_dodge(width = 0.45)) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.75, width=0.25, position=position_dodge(width = 0.45)) +
+    scale_color_brewer(palette="Dark2", name="Congruency", breaks=c("Congruent", "Incongruent"), labels=c("Congruent", "Incongruent")) +
+    scale_x_discrete(name = "Age Group", labels = c("Child", "Adult")) +
+    scale_y_continuous(name = "Mean Correlative Value (Fisher's Z)") +
+    coord_cartesian(ylim=c(0.10, 0.50)) +
+    theme_classic() +
+    theme(title = element_text(face="bold", size=16)) +
+    theme(axis.text.x = element_text(size=16, color = "Black")) +
+    theme(axis.text.y = element_text(size=14, color = "Black"))
+  Plot   
+```
+
+```{r Visualization Export}
+  setwd(Plots.Dir)
+  pdf("Differences in Representational Similarity By Age & Congruence.pdf", width = 6, height = 5)
+  Plot
+  dev.off()
+```
+
+# ----- BY AGE GROUP, ROI, & CONGRUENCE -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("Age.Group", "Congruency", "ROI"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = Age.Group, y = Correlation.fz, color = Congruency, group = Congruency)) +
+    stat_summary(geom="point", fun = mean, size = 3.5, position=position_dodge(width = 0.45)) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.75, width=0.25, position=position_dodge(width = 0.45)) +
+    scale_color_brewer(palette="Dark2", name="Congruency", breaks=c("Congruent", "Incongruent"), labels=c("Congruent", "Incongruent")) +
+    scale_x_discrete(name = "Age Group", labels = c("Child", "Adult")) +
+    scale_y_continuous(name = "Mean Correlative Value (Fisher's Z)") +
+    coord_cartesian(ylim=c(0.10, 0.50)) +
+    facet_wrap(.~ROI,scales='free',strip.position = "bottom")+
+    theme_classic() +
+    theme(title = element_text(face="bold", size=16)) +
+    theme(axis.text.x = element_text(size=16, color = "Black")) +
+    theme(axis.text.y = element_text(size=14, color = "Black")) +
+    theme(panel.spacing    = unit(0, "points"),
+          strip.background = element_blank(),
+          strip.placement  = "outside",
+          strip.text = element_text(size=14,face = 'bold'))
+  Plot  
+```
+
+```{r Visualization Export}
+  setwd(Plots.Dir)
+  pdf("Differences in Representational Similarity By Age, ROI, & Congruence.pdf", width = 7, height = 5)
+  Plot
+  dev.off()
+```
+
+====== POST-HOC CONTRASTS ======
+
+```{r Simple Effects Contrast}
+c1 <- t.test(df$Correlation.fz[df$ROI == "AMY" & df$Age.Group == "Child"], df$Correlation.fz[df$ROI == "AMY" & df$Age.Group == "Adult"])
+c2 <- t.test(df$Correlation.fz[df$ROI == "NAcc" & df$Age.Group == "Child"], df$Correlation.fz[df$ROI == "NAcc" & df$Age.Group == "Adult"])
+c3 <- t.test(df$Correlation.fz[df$ROI == "vmPFC" & df$Age.Group == "Child"], df$Correlation.fz[df$ROI == "vmPFC" & df$Age.Group == "Adult"])
+c4 <- t.test(df$Correlation.fz[df$ROI == "AMY" & df$Age.Group == "Child"], df$Correlation.fz[df$ROI == "NAcc" & df$Age.Group == "Child"])
+c5 <- t.test(df$Correlation.fz[df$ROI == "AMY" & df$Age.Group == "Child"], df$Correlation.fz[df$ROI == "vmPFC" & df$Age.Group == "Child"])
+c6 <- t.test(df$Correlation.fz[df$ROI == "NAcc" & df$Age.Group == "Child"], df$Correlation.fz[df$ROI == "vmPFC" & df$Age.Group == "Child"])
+c7 <- t.test(df$Correlation.fz[df$ROI == "AMY" & df$Age.Group == "Adult"], df$Correlation.fz[df$ROI == "NAcc" & df$Age.Group == "Adult"])
+c8 <- t.test(df$Correlation.fz[df$ROI == "AMY" & df$Age.Group == "Adult"], df$Correlation.fz[df$ROI == "vmPFC" & df$Age.Group == "Adult"])
+c9 <- t.test(df$Correlation.fz[df$ROI == "NAcc" & df$Age.Group == "Adult"], df$Correlation.fz[df$ROI == "vmPFC" & df$Age.Group == "Adult"])
+```
+
+```{r Interaction Contrast}
+c10 <- t.test(df$Correlation.fz[(df$ROI == "AMY" & df$Age.Group == "Child") | (df$ROI == "NAcc" & df$Age.Group == "Adult")], 
+              df$Correlation.fz[(df$ROI == "AMY" & df$Age.Group == "Adult") | (df$ROI == "NAcc" & df$Age.Group == "Child")])
+c11 <- t.test(df$Correlation.fz[(df$ROI == "AMY" & df$Age.Group == "Child") | (df$ROI == "vmPFC" & df$Age.Group == "Adult")], 
+              df$Correlation.fz[(df$ROI == "AMY" & df$Age.Group == "Adult") | (df$ROI == "vmPFC" & df$Age.Group == "Child")])
+c12 <- t.test(df$Correlation.fz[(df$ROI == "vmPFC" & df$Age.Group == "Child") | (df$ROI == "NAcc" & df$Age.Group == "Adult")], 
+              df$Correlation.fz[(df$ROI == "vmPFC" & df$Age.Group == "Adult") | (df$ROI == "NAcc" & df$Age.Group == "Child")])
+```
+
+# ----- CONTRAST DATAFRAME -----
+
+```{r Compiling Contrast Values}
+Contrast <- c("Child - Adult, AMY", "Child - Adult, NAcc", "Child - Adult, vmPFC",
+              "AMY - NAcc, Child", "AMY - vmPFC, Child", "NAcc - vmPFC, Child",
+              "AMY - NAcc, Adult", "AMY - vmPFC, Adult", "NAcc - vmPFC, Adult",
+              "AMY - NAcc, Child - Adult", "AMY - vmPFC, Child - Adult", 
+              "NAcc - vmPFC, Child - Adult")
+Estimate <- round(c(c1$estimate, c2$estimate, c3$estimate, c4$estimate, c5$estimate,
+                    c6$estimate, c7$estimate, c8$estimate, c9$estimate, c10$estimate, 
+                    c11$estimate, c12$estimate),3)
+CI95 <- round(c(c1$conf.int, c2$conf.int, c3$conf.int, c4$conf.int, c5$conf.int,
+                c6$conf.int, c7$conf.int, c8$conf.int, c9$conf.int, c10$conf.int, 
+                c11$conf.int, c12$conf.int),3)
+Statistic <- round(c(c1$statistic, c2$statistic, c3$statistic, c4$statistic, c5$statistic,
+                     c6$statistic, c7$statistic, c8$statistic, c9$statistic, c10$statistic, 
+                     c11$statistic, c12$statistic),3)
+StdErr <- round(c(c1$stderr, c2$stderr, c3$stderr, c4$stderr, c5$stderr,
+                  c6$stderr, c7$stderr, c8$stderr, c9$stderr, c10$stderr, 
+                  c11$stderr, c12$stderr),3)
+DoF <- round(c(c1$parameter, c2$parameter, c3$parameter, c4$parameter, c5$parameter,
+               c6$parameter, c7$parameter, c8$parameter, c9$parameter, c10$parameter, 
+               c11$parameter, c12$parameter),3)
+Raw.P <- round(c(c1$p.value, c2$p.value, c3$p.value, c4$p.value, c5$p.value,
+                 c6$p.value, c7$p.value, c8$p.value, c9$p.value, c10$p.value, 
+                 c11$p.value, c12$p.value),3)
+```
+
+```{r Defining Columns}
+  Cols <- c("Contrast", "Est.X", "Est.Y", "Diff", "SE", "CI.LWR", "CI.UPR", "T.Stat", "df", "Raw.P.Val", "Bonferroni.P.Val")
+```
+
+```{r Defining Rows}
+  Rows <- 1:length(Contrast)
+```
+
+```{r Creating Dataframe}    
+  Contrasts <- data.frame(matrix(NA, 
+                          nrow = length(Rows), 
+                          ncol = length(Cols), 
+                          dimnames = list(Rows, Cols)))
+```
+
+```{r Applying Values to Contrast Dataframe}    
+  Contrasts$Contrast <- Contrast 
+  Contrasts$Est.X <- Estimate[seq(1,((length(Rows)*2) - 1),2)]
+  Contrasts$Est.Y <- Estimate[seq(2,(length(Rows)*2),2)]
+  Contrasts$Diff <- Contrasts$Est.X - Contrasts$Est.Y
+  Contrasts$SE <- StdErr
+  Contrasts$CI.LWR <- CI95[seq(1,((length(Rows)*2) - 1),2)]
+  Contrasts$CI.UPR <- CI95[seq(2,(length(Rows)*2),2)]
+  Contrasts$T.Stat <- Statistic
+  Contrasts$df <- DoF
+  Contrasts$Raw.P.Val <- Raw.P
+  Contrasts$Bonferroni.P.Val <- round(p.adjust(Contrasts$Raw.P.Val, method = "bonferroni"),3)
+  rm(c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12, Cols, Rows, Contrast, Estimate, CI95, Statistic,DoF, Raw.P, StdErr)
+```
+
+```{r Viewing Contrast Results}    
+  Contrasts
+```
+
+# ----- CONTRAST RESULTS -----
+
++ Bonferroni adjusted post-hoc contrasts further elucidated the statistical differences between these groups. Children demonstrate greater representational similarity in AMY [diff = 0.047, se = 0.009, 95% CI[0.029, 0.064], t(5007) = 5.335, adj. p < 0.001], NAcc [diff = 0.062, se = 0.012, 95% CI[0.039, 0.084], t(4701) = 5.295, adj. p < 0.001], and vmPFC [diff = 0.117, se = 0.012, 95% CI[0.093, 0.140], t(4905) = 9.789, adj. p < 0.001] activation patterns relative to their older counterparts. Children also demonstrated differences in representational similarity between AMY and vmPFC [diff = -0.093, se = 0.010, 95% CI[-0.114, -0.073], t(5232) = -9.041, adj. p < 0.001] and NAcc and vmPFC [diff = -0.059, se = 0.011, 95% CI[-0.081, -0.037], t(5560) = -5.305, adj. p < 0.001], and AMY and NAcc [diff = -0.034, se = 0.010, 95% CI[-0.053, -0.015], t(5412) = -3.482, adj. p = 0.012]. No such ROI differences were observed in our adult sample [AMY-NAcc: diff = -0.019, se = 0.011, 95% CI[-0.040, 0.002], t(3966) = -1.785, adj. p = 0.888; AMY-vmPFC: diff = -0.023, se = 0.011, 95% CI[-0.044, -0.002], t(4011) = -2.186, adj. p = 0.348; NAcc-vmPFC: diff = -0.004, se = 0.012, 95% CI[-0.028, 0.020], t(4476) = -0.322, adj. p = 1.000]. Interaction contrasts found that the differences between the adult AMY and vmPFC to be different than that of the child AMY and vmPFC [diff = -0.042, se = 0.007, 95% CI[-0.056, -0.027], t(10064) = -5.563, adj. p < 0.001] and NAcc and vmPFC [diff = 0.031, se = 0.008, 95% CI[0.015, 0.047], t(10038) = 3.733, adj. p < 0.001], but no such differences were observed between the AMY and NAcc [diff = -0.011, se = 0.007, 95% CI[-0.025, 0.004], t(10058) = -1.444, adj. p = 1.000].
+
+
+=================================================================
+======== AFFECTIVE & NON-AFFECTIVE MIXED EFFECTS ANOVAs =========
+=================================================================
+----- PREMISE -----
+
++ We failed to support basically any of our previous hypotheses in regards to Affective. Rather than representing emotion more broadly, perhaps incongruent patterns represent non-affective characteristics of our stimuli. In order to answer that question, I need to examine activation patterns to neutral stimuli and run comparisons to affective stimuli with the premise being that neutral-affective stimuli pairs will demonstrate lower mean RS values relative to across valence pairs, and this difference is due to the presence of affective sentiments within the stimuli. Affective stimuli should demonstrate greater representational similarity scores relative to affect-neutral and neutral-neutral comparisons. We don't expect there to be significant age differences, as both children and adults should be fairly consistent with one another in representing affective/non-affective content along those binary distinctions. We also don't expect to see any ROI - Affect differences either.  Now, affect will replace valence in our models with ROI, Age Group, and Participant all retaining their positions in a Mixed Effects ANOVA with Bonferroni adjusted contrasts as allowed.
+
+----- ASSUMPTIONS -----
+
+```{r Subsetting Dataframe}
+df <- subset(AllCor.df, !is.na(Correlation.fz))
+```
+
+```{r Designating Affective Variable}
+df$Affective[!is.na(df$Congruency)] <- "Affective" 
+df$Affective[df$Valence.Pair == "Neutral"] <- "Non-Affective"
+df$Affective[(df$Valence.Pair == "Neut-Pos" | df$Valence.Pair == "Neut-Neg")] <- "Semi-Affective"
+df$Affective <- factor(df$Affective, levels = c("Affective", "Semi-Affective", "Non-Affective"), labels = c("Affective", "Semi-Affective", "Non-Affective"))
+df <- subset(df, !is.na(Correlation.fz) & Affective != "Semi-Affective")
+```
+
+```{r Summary}
+skim(df)
+```
+
+```{r Describe}
+psych::describe(df$Correlation.fz)
+```
+
+```{r Histogram}
+hist(df$Correlation.fz)
+```
+
+```{r QQ Plots}
+ggqqplot(df, "Correlation.fz", ggtheme = theme_bw()) +
+  facet_grid(Affective + Age.Group ~ ROI, labeller = "label_both")
+```
+
+```{r Box Plot}
+  ggboxplot(df, 
+            x = "Age.Group", 
+            y = "Correlation.fz", 
+            color = "Affective", 
+            palette = "jco",
+            facet.by = "ROI", 
+            short.panel.labs = FALSE)
+```
+
+```{r Outliers}
+df %>%
+  group_by(ROI, Age.Group, Affective) %>%
+  identify_outliers(Correlation.fz)
+```
+
+```{r Shapiro-Wilk Test for Normality}
+df %>%
+  group_by(ROI, Age.Group, Affective) %>%
+  shapiro_test(Correlation.fz)
+```
+
+```{r Homogneity of variance}
+df %>%
+  group_by(ROI, Affective) %>%
+  levene_test(Correlation.fz ~ Age.Group)
+```
+
+----- ASSUMPTION RESULTS -----
+
++ After reviewing the assumptions necessary for our statistical methods, we have mixed support that this dataset is a good fit. There were a number of extreme outliers across ROI, Age Group, and Affective, as assessed by box plot method. Visual inspection via histogram and qq plot suggests a relatively normal distribution with low kurtosis (0.57) and skew (0.03) overall. Shapiro-Wilk’s test of normality produced significant values for a number of the cell groups. However, this test is especially sensitive to large sample sizes and the test statistics in each case were 0.98 or greater, suggesting adequate distribution. There was insufficient homogeneity of variances as assessed by Levene’s test of homogeneity of variances within many of the categories. However, mixed ANOVA methods are robust to heterogeneity of variance in circumstances of equal group sample sizes.
+
+----- MODELS -----
+
+```{r Model & Results}
+aov <- aov(Correlation.fz ~ ROI * Age.Group * Affective + Error(Participant), data = df)
+summary(aov)
+```
+
+```{r Effect Sizes}
+sjstats::anova_stats(aov, digits = 3)
+```
+
+----- ANOVA RESULTS -----
+
++ Using a Mixed Effects ANOVA model adjusting for the random effect of participant, significant differences were not measured in the between-subject main effect of Age Group [F(1, 43) = 3.48, p = 0.069, ω2p = 0.007], but were observed in the within-subject main effects of ROI [F(2, 33959) = 75.48, p < 0.001, ω2p = 0.004] and Affectivity [F(2, 33959) = 32.58, p < 0.001, ω2p = 0.002]. Additional interactions between ROI and Age Group [F(2, 33959) = 24.41, p < 0.001, ω2p = 0.001] and Age Group and Affectivity [F(2, 33959 = 6.24, p = 0.002, ω2p = 0.000] demonstrated significantly different means as well. However, no statistically significant differences were measured in the interactions between ROI and Affectivity [F(2, 33959) = 0.50, p = 0.739, ω2p = 0.000], and the three-way ROI-Affectivity-Age Group interaction [F(2, 33959) = 0.25, p = 0.909, ω2p = 0.000].
+
+====== VISUALIZATIONS ======
+# ----- BY AGE GROUP -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("Age.Group"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = Age.Group, y = Correlation.fz, color = Age.Group)) +
+    stat_summary(geom="point", fun = mean, size = 3.5) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.75, width=0.25) +
+    scale_color_brewer(palette="Dark2") +
+    scale_x_discrete(name = "Age Group", labels = c("Child", "Adult")) +
+    scale_y_continuous(name = "Mean Correlative Value (Fisher's Z)") +
+    coord_cartesian(ylim=c(0.10, 0.50)) +
+    theme_classic() +
+    theme(legend.position="none") +
+    theme(title = element_text(face="bold", size=16)) +
+    theme(axis.text.x = element_text(size=16, color = "Black")) +
+    theme(axis.text.y = element_text(size=14, color = "Black"))
+  Plot
+```
+
+# ----- BY ROI -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("ROI"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = ROI, y = Correlation.fz, color = ROI)) +
+    stat_summary(geom="point", fun = mean, size = 3.5,) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.75, width=0.25) +
+    scale_color_brewer(palette="Dark2") +
+    scale_x_discrete(name = "ROI", labels = c("AMY", "NAcc", "vmPFC")) +
+    scale_y_continuous(name = "Mean Correlative Value (Fisher's Z)") +
+    coord_cartesian(ylim=c(0.10, 0.50)) +
+    theme_classic() +
+    theme(legend.position="none") +
+    theme(title = element_text(face="bold", size=16)) +
+    theme(axis.text.x = element_text(size=16, color = "Black")) +
+    theme(axis.text.y = element_text(size=14, color = "Black"))
+  Plot
+```
+
+# ----- BY AFFECTIVITY -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("Affective"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = Affective, y = Correlation.fz, color = Affective)) +
+    stat_summary(geom="point", fun = mean, size = 3.5,) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.75, width=0.25) +
+    geom_signif(comparisons = list(c("Affective", "Non-Affective")), y_position=.35, map_signif_level = T, textsize = 10, tip_length = c(.015, .025), color = "black") +
+    scale_color_brewer(palette="Dark2") +
+    scale_x_discrete(name = "Affective", labels = c("Affective", "Non-Affective")) +
+    scale_y_continuous(name = "Mean Correlative Value (Fisher's Z)") +
+    coord_cartesian(ylim=c(0.10, 0.50)) +
+    theme_classic() +
+    theme(legend.position="none") +
+    theme(title = element_text(face="bold", size=16)) +
+    theme(axis.text.x = element_text(size=16, color = "Black")) +
+    theme(axis.text.y = element_text(size=14, color = "Black"))
+  Plot  
+```
+
+```{r Visualization Export}
+  setwd(Plots.Dir)
+  pdf("Differences in Representational Similarity By Affectivity.pdf", width = 5, height = 5)
+  Plot
+  dev.off()
+```
+
+# ----- BY AGE GROUP & ROI -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("Age.Group", "ROI"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = Age.Group, y = Correlation.fz, color = ROI, group = ROI)) +
+    stat_summary(geom="point", fun = mean, size = 3.5, position=position_dodge(width = 0.45)) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.75, width=0.25, position=position_dodge(width = 0.45)) +
+    scale_color_brewer(palette="Dark2", name="ROI", breaks=c("AMY", "NAcc", "vmPFC"), labels=c("AMY", "NAcc", "vmPFC")) +
+    scale_x_discrete(name = "Age Group", labels = c("Child", "Adult")) +
+    scale_y_continuous(name = "Mean Correlative Value (Fisher's Z)") +
+    coord_cartesian(ylim=c(0.10, 0.52)) +
+    theme_classic() +
+    theme(title = element_text(face="bold", size=16)) +
+    theme(axis.text.x = element_text(size=16, color = "Black")) +
+    theme(axis.text.y = element_text(size=14, color = "Black"))
+  Plot 
+```
+
+# ----- BY AGE GROUP & AFFECTIVITY -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("Age.Group", "Affective"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = Age.Group, y = Correlation.fz, color = Affective, group = Affective)) +
+    stat_summary(geom="point", fun = mean, size = 3.5, position=position_dodge(width = 0.45)) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.75, width=0.25, position=position_dodge(width = 0.45)) +
+    geom_signif(y_position=.275, textsize = 10, tip_length = c(.005, .01), annotations = "*", color = "black", xmin = 1.89, xmax = 2.11) +
+      geom_signif(y_position=.35, textsize = 10, tip_length = c(.005, .02), annotations = "***", color = "black", xmin = 0.89, xmax = 1.11) +
+    scale_color_brewer(palette="Dark2", name="Affective", breaks=c("Affective", "Non-Affective"), labels=c("Affective", "Non-Affective")) +
+    scale_x_discrete(name = "Age Group", labels = c("Child", "Adult")) +
+    scale_y_continuous(name = "Mean Correlative Value (Fisher's Z)") +
+    coord_cartesian(ylim=c(0.10, 0.50)) +
+    theme_classic() +
+    theme(title = element_text(face="bold", size=16)) +
+    theme(axis.text.x = element_text(size=16, color = "Black")) +
+    theme(axis.text.y = element_text(size=14, color = "Black"))
+  Plot   
+```
+
+```{r Visualization Export}
+  setwd(Plots.Dir)
+  pdf("Differences in Representational Similarity By Age & Affectivity.pdf", width = 6, height = 5)
+  Plot
+  dev.off()
+```
+
+# ----- BY AGE GROUP, ROI, & AFFECTIVITY -----
+
+``` {r Creating Summary Dataframe}
+  Summary <- CustomSummary(df, "Correlation.fz", c("Age.Group", "Affective", "ROI"))
+```
+
+```{r Visualization}
+Plot <- ggplot(df, aes(x = Age.Group, y = Correlation.fz, color = Affective, group = Affective)) +
+    stat_summary(geom="point", fun = mean, size = 3.5, position=position_dodge(width = 0.45)) +
+    geom_errorbar(data = Summary, aes(ymin = Correlation.fz - ci, ymax = Correlation.fz + ci), size= 0.75, width=0.25, position=position_dodge(width = 0.45)) +
+    scale_color_brewer(palette="Dark2", name="Affective", breaks=c("Affective", "Non-Affective"), labels=c("Affective", "Non-Affective")) +
+    scale_x_discrete(name = "Age Group", labels = c("Child", "Adult")) +
+    scale_y_continuous(name = "Mean Correlative Value (Fisher's Z)") +
+    coord_cartesian(ylim=c(0.10, 0.50)) +
+    facet_wrap(.~ROI,scales='free',strip.position = "bottom")+
+    theme_classic() +
+    theme(title = element_text(face="bold", size=16)) +
+    theme(axis.text.x = element_text(size=16, color = "Black")) +
+    theme(axis.text.y = element_text(size=14, color = "Black")) +
+    theme(panel.spacing    = unit(0, "points"),
+          strip.background = element_blank(),
+          strip.placement  = "outside",
+          strip.text = element_text(size=14,face = 'bold'))
+  Plot  
+```
+
+```{r Visualization Export}
+  setwd(Plots.Dir)
+  pdf("Differences in Representational Similarity By Age, ROI, & Affectivity.pdf", width = 7, height = 5)
+  Plot
+  dev.off()
+```
+
+====== POST-HOC CONTRASTS ======
+
+```{r Simple Effects}
+#c1 <- t.test(df$Correlation.fz[df$Affective == "Affective"], df$Correlation.fz[df$Affective == "Semi-Affective"])
+c2 <- t.test(df$Correlation.fz[df$Affective == "Affective"], df$Correlation.fz[df$Affective == "Non-Affective"])
+#c3 <- t.test(df$Correlation.fz[df$Affective == "Semi-Affective"], df$Correlation.fz[df$Affective == "Non-Affective"])
+```
+
+
+```{r Simple Effects Contrast}
+#c4 <- t.test(df$Correlation.fz[df$Affective == "Affective" & df$Age.Group == "Child"], df$Correlation.fz[df$Affective == "Semi-Affective" & df$Age.Group == "Child"])
+c5 <- t.test(df$Correlation.fz[df$Affective == "Affective" & df$Age.Group == "Child"], df$Correlation.fz[df$Affective == "Non-Affective" & df$Age.Group == "Child"])
+#c6 <- t.test(df$Correlation.fz[df$Affective == "Semi-Affective" & df$Age.Group == "Child"], df$Correlation.fz[df$Affective == "Non-Affective" & df$Age.Group == "Child"])
+#c7 <- t.test(df$Correlation.fz[df$Affective == "Affective" & df$Age.Group == "Adult"], df$Correlation.fz[df$Affective == "Semi-Affective" & df$Age.Group == "Adult"])
+c8 <- t.test(df$Correlation.fz[df$Affective == "Affective" & df$Age.Group == "Adult"], df$Correlation.fz[df$Affective == "Non-Affective" & df$Age.Group == "Adult"])
+#c9 <- t.test(df$Correlation.fz[df$Affective == "Semi-Affective" & df$Age.Group == "Adult"], df$Correlation.fz[df$Affective == "Non-Affective" & df$Age.Group == "Adult"])
+```
+
+```{r Interaction Contrast}
+#c10 <- t.test(df$Correlation.fz[(df$Affective == "Affective" & df$Age.Group == "Child") | (df$Affective == "Semi-Affective" & df$Age.Group == "Adult")], 
+#              df$Correlation.fz[(df$Affective == "Affective" & df$Age.Group == "Adult") | (df$Affective == "Semi-Affective" & df$Age.Group == "Child")])
+c11 <- t.test(df$Correlation.fz[(df$Affective == "Affective" & df$Age.Group == "Child") | (df$Affective == "Non-Affective" & df$Age.Group == "Adult")], 
+              df$Correlation.fz[(df$Affective == "Affective" & df$Age.Group == "Adult") | (df$Affective == "Non-Affective" & df$Age.Group == "Child")])
+#c12 <- t.test(df$Correlation.fz[(df$Affective == "Non-Affective" & df$Age.Group == "Child") | (df$Affective == "Semi-Affective" & df$Age.Group == "Adult")], 
+#              df$Correlation.fz[(df$Affective == "Non-Affective" & df$Age.Group == "Adult") | (df$Affective == "Semi-Affective" & df$Age.Group == "Child")])
+```
+
+# ----- CONTRAST DATAFRAME -----
+
+```{r Compiling Contrast Values}
+Contrast <- c(#"Affect - Semi-Affect", 
+              #"Affect - Non-Affect", 
+              #"Semi-Affect - Non-Affect",
+              #"Affect - Semi-Affect, Child", 
+              "Affect - Non-Affect, Child", 
+              #"Semi-Affect - Non-Affect, Child",
+              #"Affect - Semi-Affect, Adult", 
+              "Affect - Non-Affect, Adult", 
+              #"Semi-Affect - Non-Affect, Adult",
+              #"Affect - Semi-Affect, Child - Adult", 
+              "Affect - Non-Affect, Child - Adult" 
+              #"Semi-Affect - Non-Affect, Child - Adult"
+              )
+Estimate <- round(c(#c1$estimate, 
+                    #c2$estimate, 
+                    #c3$estimate, 
+                    #c4$estimate, 
+                    c5$estimate,
+                    #c6$estimate, 
+                    #c7$estimate, 
+                    c8$estimate, 
+                    #c9$estimate, 
+                    #c10$estimate, 
+                    c11$estimate 
+                    #c12$estimate
+                    ),3)
+CI95 <- round(c(#c1$conf.int, 
+                #c2$conf.int, 
+                #c3$conf.int, 
+                #c4$conf.int, 
+                c5$conf.int,
+                #c6$conf.int, 
+                #c7$conf.int, 
+                c8$conf.int, 
+                #c9$conf.int, 
+                #c10$conf.int, 
+                c11$conf.int 
+                #c12$conf.int
+                ),3)
+Statistic <- round(c(#c1$statistic, 
+                     #c2$statistic, 
+                     #c3$statistic,
+                     #c4$statistic, 
+                     c5$statistic,
+                     #c6$statistic,
+                     #c7$statistic, 
+                     c8$statistic,
+                     #c9$statistic,
+                     #c10$statistic, 
+                     c11$statistic
+                     #c12$statistic
+                     ),3)
+StdErr <- round(c(#c1$stderr, 
+                  #c2$stderr, 
+                  #c3$stderr,
+                  #c4$stderr,
+                  c5$stderr,
+                  #c6$stderr,
+                  #c7$stderr, 
+                  c8$stderr,
+                  #c9$stderr,
+                  #c10$stderr, 
+                  c11$stderr
+                  #c12$stderr
+                  ),3)
+DoF <- round(c(#c1$parameter, 
+               #c2$parameter,
+               #c3$parameter,
+               #c4$parameter,
+               c5$parameter,
+               #c6$parameter, 
+               #c7$parameter, 
+               c8$parameter,
+               #c9$parameter,
+               #c10$parameter, 
+               c11$parameter
+               #c12$parameter
+               ),3)
+Raw.P <- round(c(#c1$p.value,
+                 #c2$p.value, 
+                 #c3$p.value, 
+                 #c4$p.value, 
+                 c5$p.value,
+                 #c6$p.value, 
+                 #c7$p.value, 
+                 c8$p.value, 
+                 #c9$p.value, 
+                 #c10$p.value, 
+                 c11$p.value 
+                 #c12$p.value
+                 ),3)
+```
+
+```{r Defining Columns}
+  Cols <- c("Contrast", "Est.X", "Est.Y", "Diff", "SE", "CI.LWR", "CI.UPR", "T.Stat", "df", "Raw.P.Val", "Bonferroni.P.Val")
+```
+
+```{r Defining Rows}
+  Rows <- 1:length(Contrast)
+```
+
+```{r Creating Dataframe}    
+  Contrasts <- data.frame(matrix(NA, 
+                          nrow = length(Rows), 
+                          ncol = length(Cols), 
+                          dimnames = list(Rows, Cols)))
+```
+
+```{r Applying Values to Contrast Dataframe}    
+  Contrasts$Contrast <- Contrast 
+  Contrasts$Est.X <- Estimate[seq(1,((length(Rows)*2) - 1),2)]
+  Contrasts$Est.Y <- Estimate[seq(2,(length(Rows)*2),2)]
+  Contrasts$Diff <- Contrasts$Est.X - Contrasts$Est.Y
+  Contrasts$SE <- StdErr
+  Contrasts$CI.LWR <- CI95[seq(1,((length(Rows)*2) - 1),2)]
+  Contrasts$CI.UPR <- CI95[seq(2,(length(Rows)*2),2)]
+  Contrasts$T.Stat <- Statistic
+  Contrasts$df <- DoF
+  Contrasts$Raw.P.Val <- Raw.P
+  Contrasts$Bonferroni.P.Val <- round(p.adjust(Contrasts$Raw.P.Val, method = "bonferroni"),3)
+  rm(c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12, Cols, Rows, Contrast, Estimate, CI95, Statistic,DoF, Raw.P, StdErr)
+```
+
+```{r Viewing Contrast Results}    
+  Contrasts
+```
+
+# ----- CONTRAST RESULTS -----
+
++ Bonferroni adjusted post-hoc contrasts further elucidated the statistical differences between these groups. Affective representations demonstrated greater similarity than semi-affective [diff = 0.025, se = 0.004, 95% CI[0.016, 0.033], t(30235) = 5.60, adj. p < 0.001] and non-affective [diff = 0.048, se = 0.007, 95% CI[0.034, 0.061], t(5993) = 6.96, adj. p < 0.001] and semi-affective demonstrated greater similarity than non-affective [diff = 0.023, se = 0.007, 95% CI[0.009, 0.036], t(5944) = 3.33, adj. p = 0.012]. This pattern repeated itself in children [Affect - Semi-Affect: diff = 0.035, se = 0.006, 95% CI[0.023, 0.047], t(16798) = 5.82, adj. p < 0.001; Affect - Non-Affect: diff = 0.065, se = 0.009, 95% CI[0.047, 0.084], t(3273) = 6.88, adj. p < 0.001; Semi-Affect - Non-Affect: diff = 0.030, se = 0.009, 95% CI[0.011, 0.048], t(3284) = 3.14, adj. p = 0.024], but no differences were measured in adults [Affect - Semi-Affect: diff = 0.011, se = 0.006, 95% CI[-0.001, 0.024], t(13429) = 1.82, adj. p = 0.828; Affect - Non-Affect: diff = 0.025, se = 0.010, 95% CI[0.006, 0.045], t(2712) = 2.61, adj. p = 0.108; Semi-Affect - Non-Affect: diff = 0.014, se = 0.010, 95% CI[-0.005, 0.033], t(2657) = 1.43, adj. p = 1.000]. The differences in how children and adults represent these categories were significantly different as well [Affect - Semi-Affect: diff = 0.015, se = 0.004, 95% CI[0.006, 0.023], t(30236) = 3.26, adj. p = 0.012; Affect - Non-Affect: diff = 0.055, se = 0.006, 95% CI[0.045, 0.067], t(18677) = 9.99, adj. p < 0.001; Semi-Affect - Non-Affect: diff = -0.035, se = 0.006, 95% CI[-0.046, -0.024], t(18753) = -6.37, adj. p < 0.001]. 
